@@ -1,3 +1,7 @@
+
+/Code/Layout_Analysis/unilm/layoutlmv3/examples/model_final.pth
+/Code/Layout_Analysis/unilm/layoutlmv3/examples/object_detection/checkpoint/model_final.pth
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

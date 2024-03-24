@@ -35,6 +35,8 @@ from detectron2.evaluation import (
     inference_on_dataset,
     print_csv_format,
     verify_results,
+    inference_context, 
+    
 )
 from detectron2.modeling import build_model
 from detectron2.solver import build_lr_scheduler, build_optimizer
@@ -64,6 +66,113 @@ __all__ = [
     "DefaultPredictor",
     "MyTrainer",
 ]
+# Copyright (c) Facebook, Inc. and its affiliates.
+import datetime
+import logging
+import time
+from collections import OrderedDict, abc
+from contextlib import ExitStack, contextmanager
+from typing import List, Union
+import torch
+from torch import nn
+
+from detectron2.utils.comm import get_world_size, is_main_process
+from detectron2.utils.logger import log_every_n_seconds
+
+def inference_on_dataset(
+    model,
+    data_loader,
+    evaluator: Union[DatasetEvaluator, List[DatasetEvaluator], None],
+    callbacks=None,
+):
+    """
+    Run model on the data_loader and evaluate the metrics with evaluator.
+    Also benchmark the inference speed of `model.__call__` accurately.
+    The model will be used in eval mode.
+
+    Args:
+        model (callable): a callable which takes an object from
+            `data_loader` and returns some outputs.
+
+            If it's an nn.Module, it will be temporarily set to `eval` mode.
+            If you wish to evaluate a model in `training` mode instead, you can
+            wrap the given model and override its behavior of `.eval()` and `.train()`.
+        data_loader: an iterable object with a length.
+            The elements it generates will be the inputs to the model.
+        evaluator: the evaluator(s) to run. Use `None` if you only want to benchmark,
+            but don't want to do any evaluation.
+        callbacks (dict of callables): a dictionary of callback functions which can be
+            called at each stage of inference.
+
+    Returns:
+        The return value of `evaluator.evaluate()`
+    """
+    
+    # change the dataloader to be just 1 batch
+    data_loader = [next(iter(data_loader))]
+    
+    logger = logging.getLogger(__name__)
+    logger.info("Start inference on {} batches".format(len(data_loader)))
+
+    with ExitStack() as stack:
+        if isinstance(model, nn.Module):
+            stack.enter_context(inference_context(model))
+        stack.enter_context(torch.no_grad())
+
+        for idx, inputs in enumerate(data_loader):
+            print(inputs)
+            outputs = model(inputs)
+            print(outputs)
+            
+            # save the outputs to a file
+            
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+    # An evaluator may return None when not in main process.
+    # Replace it by an empty dict instead to make it easier for downstream code to handle
+    if results is None:
+        results = {}
+    return results
+
+
+def trivial_batch_collator(batch):
+    """
+    A batch collator that does nothing.
+    """
+    return batch
+
+# create a dataloader that returns [{'file_name': 'dir_2_image', 'height': 811, 'width': 613, 'image_id': 0, 'image': tensor([[[
+# file_name': ['C'], 'height': tensor([740]), 'width': tensor([615]), 'image_id': tensor([0]), 'image': tensor([[[ 19,  10,  13],[ 28,  19,  22],
+
+import os
+import cv2
+class custom_dataset():
+    def __init__(self, folder_dir):
+        self.folder_dir = folder_dir
+        
+        self.img_dirs = []
+        for root, dir, files in os.walk(folder_dir):
+            for file in files:
+                if file.endswith(".jpg") or file.endswith(".png"):
+                    self.img_dirs.append(os.path.join(root, file))
+        
+    def __len__(self):
+        return len(self.img_dirs)
+        
+    def __getitem__(self, idx):
+        img_dir = self.img_dirs[idx]
+        img = cv2.imread(img_dir)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        h, w = img.shape[:2]
+        
+        img = torch.tensor(img)
+        return [{'file_name': img_dir, 'height': int(h), 'width': int(w), 'image_id': idx, 'image': img[0]}]
+
+
+
+
+
+
 
 
 def create_ddp_model(model, *, fp16_compression=False, **kwargs):
@@ -326,6 +435,8 @@ class DefaultPredictor:
             predictions = self.model([inputs])[0]
             return predictions
 
+
+import torch.utils.data as torchdata
 
 class MyTrainer(TrainerBase):
     """
@@ -620,8 +731,29 @@ class MyTrainer(TrainerBase):
             mapper = None
         return build_detection_train_loader(cfg, mapper=mapper)
 
+    # @classmethod
+    # def build_test_loader(cls, cfg, dataset_name):
+    #     """
+    #     Returns:
+    #         iterable
+
+    #     It now calls :func:`detectron2.data.build_detection_test_loader`.
+    #     Overwrite it if you'd like a different data loader.
+    #     """
+    #     if cfg.AUG.DETR:
+    #         mapper = DetrDatasetMapper(cfg, is_train=False)
+    #     else:
+    #         mapper = None
+
+    #     return build_detection_test_loader(cfg, dataset_name, mapper=mapper)
+    #     # Better to use mapper, which is the same as training.
+    #     # The mapper does not influence the DiT model, but it is necessary for the LayoutLMv3 model
+    #     # since we customize something in mapper.
+    #     # return build_detection_test_loader(cfg, dataset_name)
+
+
     @classmethod
-    def build_test_loader(cls, cfg, dataset_name):
+    def build_test_loader(dataset):
         """
         Returns:
             iterable
@@ -629,15 +761,18 @@ class MyTrainer(TrainerBase):
         It now calls :func:`detectron2.data.build_detection_test_loader`.
         Overwrite it if you'd like a different data loader.
         """
-        if cfg.AUG.DETR:
-            mapper = DetrDatasetMapper(cfg, is_train=False)
-        else:
-            mapper = None
-        return build_detection_test_loader(cfg, dataset_name, mapper=mapper)
-        # Better to use mapper, which is the same as training.
-        # The mapper does not influence the DiT model, but it is necessary for the LayoutLMv3 model
-        # since we customize something in mapper.
-        # return build_detection_test_loader(cfg, dataset_name)
+        # if cfg.AUG.DETR:
+        #     mapper = DetrDatasetMapper(cfg, is_train=False)
+        # else:
+        #     mapper = None
+        return torchdata.DataLoader(
+        dataset,
+        batch_size=1,
+        drop_last=False,
+        num_workers=2, 
+        collate_fn=trivial_batch_collator
+        )
+
 
     @classmethod
     def build_evaluator(cls, cfg, dataset_name, output_folder=None):
@@ -674,7 +809,13 @@ class MyTrainer(TrainerBase):
 
         results = OrderedDict()
         for idx, dataset_name in enumerate(cfg.DATASETS.TEST):
-            data_loader = cls.build_test_loader(cfg, dataset_name)
+            dataset = custom_dataset("C:/Users/Maria/OneDrive - UAB/Documentos/3r de IA/Synthesis project II/Sample documents - JPG")
+            data_loader = torchdata.DataLoader(
+                            dataset,
+                            batch_size=1,
+                            drop_last=False,
+                            num_workers=2
+                            )
             # When evaluators are passed in as arguments,
             # implicitly assume that evaluators can be created before data_loader.
             if evaluators is not None:
@@ -788,3 +929,8 @@ for _attr in ["model", "data_loader", "optimizer"]:
             lambda self, value, x=_attr: setattr(self._trainer, x, value),
         ),
     )
+
+# cfg = get_cfg()
+# pred = DefaultPredictor(cfg)
+# inputs = cv2.imread("C:\Users\Maria\OneDrive - UAB\Documentos\3r de IA\Synthesis project II\Sample documents - JPG\Certificates of no criminal records\Constancia de no antecedentes penales federales\0.jpg")
+# outputs = pred(inputs)

@@ -36,7 +36,8 @@ import weakref
 from detectron2.engine.train_loop import AMPTrainer, SimpleTrainer
 from ditod import MyDetectionCheckpointer, ICDAREvaluator
 from ditod import MyTrainer
-
+import cv2
+from ditod.mytrainer import DefaultPredictor
 
 def setup(args):
     """
@@ -86,17 +87,32 @@ def main(args):
         cfg.ICDAR_DATA_DIR_TEST
     )
 
-    if args.eval_only:
-        model = MyTrainer.build_model(cfg)
-        DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(
-            cfg.MODEL.WEIGHTS, resume=args.resume
-        )
-        res = MyTrainer.test(cfg, model)
-        return res
+    pred = DefaultPredictor(cfg)
+    inputs = cv2.imread("C:/Users/Maria/OneDrive - UAB/Documentos/3r de IA/Synthesis project II/Sample documents - JPG/Certificates of no criminal records/Constancia de no antecedentes penales federales/0.jpg")
+    outputs = pred(inputs)
+    
+    # save the outputs to a file
+    import pickle
+    with open('outputs.pkl', 'wb') as f:
+        pickle.dump(outputs, f)
+        
+    
+    print(outputs)   
+    
+    
+    return outputs
 
-    trainer = MyTrainer(cfg)
-    trainer.resume_or_load(resume=args.resume)
-    return trainer.train()
+    # if args.eval_only:
+    #     model = MyTrainer.build_model(cfg)
+    #     DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(
+    #         cfg.MODEL.WEIGHTS, resume=args.resume
+    #     )
+    #     res = MyTrainer.test(cfg, model)
+    #     return res
+
+    # trainer = MyTrainer(cfg)
+    # trainer.resume_or_load(resume=args.resume)
+    # return trainer.train()
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 
-unilm/layoutlmv3/examples/model_final.pth
-unilm/layoutlmv3/examples/object_detection/checkpoint/model_final.pth
-unilm/layoutlmv3/examples/object_detection/output/inference/instances_predictions.pth
-unilm/layoutlmv3/examples/object_detection/publaynet/model_final.pth
+layoutlmv3/examples/model_final.pth
+layoutlmv3/examples/object_detection/checkpoint/model_final.pth
+layoutlmv3/examples/object_detection/output/inference/instances_predictions.pth
+layoutlmv3/examples/object_detection/publaynet/model_final.pth
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
